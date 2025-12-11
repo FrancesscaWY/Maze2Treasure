@@ -116,7 +116,6 @@ def bfs_shortest_path(grid: List[List[int]], start: Pos, end: Pos) -> List[Pos]:
     """返回从 start 到 end 的最短路径（包含起点和终点），不可达则空"""
     q = deque([start])
     parent: Dict[Pos, Optional[Pos]] = {start: None}
-
     while q:
         cur = q.popleft()
         if cur == end:
@@ -125,10 +124,8 @@ def bfs_shortest_path(grid: List[List[int]], start: Pos, end: Pos) -> List[Pos]:
             if nb not in parent:
                 parent[nb] = cur
                 q.append(nb)
-
     if end not in parent:
         return []
-
     path = []
     cur = end
     while cur is not None:
@@ -136,33 +133,259 @@ def bfs_shortest_path(grid: List[List[int]], start: Pos, end: Pos) -> List[Pos]:
         cur = parent[cur]
     path.reverse()
     return path
+def dp_path(grid, start, end):
 
+    rows, cols = len(grid), len(grid[0])
 
-# 预留：其它算法接口（目前都调用 BFS，可按实验要求自行替换）
+    # 金豆编号
+    treasure_index = {}
+    idx = 0
+    for r in range(rows):
+        for c in range(cols):
+            if grid[r][c] == TREASURE:
+                treasure_index[(r, c)] = idx
+                idx += 1
+
+    def bitcount(x):
+        return bin(x).count("1")
+
+    # DP 数组：状态 → 最佳得分
+    dp = {}
+    parent = {}
+
+    dp[(start[0], start[1], 0)] = 0
+    parent[(start[0], start[1], 0)] = None
+
+    changed = True
+    while changed:
+        changed = False
+        for (r, c, mask), score in list(dp.items()):
+            for nr, nc in neighbors(grid, r, c):
+                new_mask = mask
+                if (nr, nc) in treasure_index:
+                    bit = 1 << treasure_index[(nr, nc)]
+                    if not (mask & bit):
+                        new_mask |= bit
+
+                # 统一的评分模型：步数 -1；吃豆 +10
+                new_score = score - 1
+                if new_mask != mask:
+                    new_score += 10
+
+                state = (nr, nc, new_mask)
+
+                if state not in dp or new_score > dp[state]:
+                    dp[state] = new_score
+                    parent[state] = (r, c, mask)
+                    changed = True
+
+    # 找终点 mask 中得分最高的
+    best_state = None
+    best_score = -10**9
+    for (r, c, mask), score in dp.items():
+        if (r, c) == end and score > best_score:
+            best_state = (r, c, mask)
+            best_score = score
+
+    if best_state is None:
+        return []
+
+    # 回溯路径
+    path = []
+    cur = best_state
+    while cur:
+        r, c, mask = cur
+        path.append((r, c))
+        cur = parent[cur]
+    return path[::-1]
+
+def backtracking_path(grid, start, end):
+
+    rows, cols = len(grid), len(grid[0])
+
+    # 金豆编号
+    treasure_index = {}
+    idx = 0
+    for r in range(rows):
+        for c in range(cols):
+            if grid[r][c] == TREASURE:
+                treasure_index[(r, c)] = idx
+                idx += 1
+
+    def bitcount(mask):
+        return bin(mask).count("1")
+
+    best_score = -10**9
+    best_path = []
+
+    visited = set()
+
+    def dfs(r, c, mask, steps, path):
+        nonlocal best_score, best_path
+
+        # 到达终点
+        if (r, c) == end:
+            score = bitcount(mask)*10 - steps
+            if score > best_score:
+                best_score = score
+                best_path = path.copy()
+            return
+
+        visited.add((r, c, mask))
+
+        for nr, nc in neighbors(grid, r, c):
+            new_mask = mask
+            if (nr, nc) in treasure_index:
+                b = 1 << treasure_index[(nr, nc)]
+                if not (mask & b):
+                    new_mask |= b
+
+            state = (nr, nc, new_mask)
+            if state in visited:
+                continue
+
+            dfs(nr, nc, new_mask, steps + 1, path + [(nr, nc)])
+
+        visited.remove((r, c, mask))
+
+    dfs(start[0], start[1], 0, 0, [start])
+    return best_path
+
+def greedy_search(grid, start, end):
+
+    rows, cols = len(grid), len(grid[0])
+
+    # 金豆位置
+    treasures = set()
+    for r in range(rows):
+        for c in range(cols):
+            if grid[r][c] == TREASURE:
+                treasures.add((r, c))
+
+    def score_gain(pos):
+        return 10 if pos in treasures else 0
+
+    def dist_to_end(pos):
+        return abs(pos[0] - end[0]) + abs(pos[1] - end[1])
+
+    path = [start]
+    visited = set([start])
+    cur = start
+    steps = 0
+
+    while cur != end:
+        candidates = []
+        for nb in neighbors(grid, *cur):
+            if nb in visited:
+                continue
+
+            gain = score_gain(nb)
+            cost = 1               # 走一步 -1
+            h = dist_to_end(nb)*0.2  # 靠近终点一点奖励
+            value = gain - cost - h
+
+            candidates.append((value, nb))
+
+        if not candidates:
+            break
+
+        _, best_next = max(candidates)
+        visited.add(best_next)
+        path.append(best_next)
+        cur = best_next
+
+    return path
+
+def branch_and_bound(grid, start, end):
+    import heapq
+
+    rows, cols = len(grid), len(grid[0])
+
+    treasure_index = {}
+    idx = 0
+    for r in range(rows):
+        for c in range(cols):
+            if grid[r][c] == TREASURE:
+                treasure_index[(r, c)] = idx
+                idx += 1
+
+    def bitcount(m): return bin(m).count("1")
+
+    def evaluate(mask, steps):
+        return bitcount(mask)*10 - steps
+
+    # 启发函数（靠近终点）
+    def heuristic(p):
+        return abs(p[0] - end[0]) + abs(p[1] - end[1])
+
+    pq = []
+    start_state = (start[0], start[1], 0, 0)  # r,c,mask,steps
+    score0 = 0
+    f0 = -score0 + heuristic(start)
+    heapq.heappush(pq, (f0, start_state))
+
+    best = {}
+    parent = {start_state: None}
+
+    goal = None
+
+    while pq:
+        f, (r, c, mask, steps) = heapq.heappop(pq)
+
+        cur_score = evaluate(mask, steps)
+
+        if (r, c) == end:
+            goal = (r, c, mask, steps)
+            break
+
+        for nr, nc in neighbors(grid, r, c):
+
+            new_mask = mask
+            if (nr, nc) in treasure_index:
+                b = 1 << treasure_index[(nr, nc)]
+                new_mask |= b
+
+            new_steps = steps + 1
+            new_score = evaluate(new_mask, new_steps)
+
+            state = (nr, nc, new_mask, new_steps)
+
+            if state not in best or new_score > best[state]:
+                best[state] = new_score
+                parent[state] = (r, c, mask, steps)
+
+                new_f = -new_score + heuristic((nr, nc))
+                heapq.heappush(pq, (new_f, state))
+
+    if goal is None:
+        return []
+
+    # 回溯路径
+    path = []
+    cur = goal
+    while cur:
+        r, c, mask, steps = cur
+        path.append((r, c))
+        cur = parent[cur]
+    return path[::-1]
+
 def plan_path(grid: List[List[int]], start: Pos, end: Pos, algo: str) -> List[Pos]:
-    if algo == "BFS(最短路)":
-        return bfs_shortest_path(grid, start, end)
-    # 下面这些先用 BFS 占位，你可以替换成真正的实现
-    elif algo == "动态规划":
-        return bfs_shortest_path(grid, start, end)
+    if algo == "动态规划":
+        return dp_path(grid, start, end)
     elif algo == "回溯法":
-        return bfs_shortest_path(grid, start, end)
+        return backtracking_path(grid, start, end)
     elif algo == "贪心算法":
-        return bfs_shortest_path(grid, start, end)
-    elif algo == "A*算法":
-        return bfs_shortest_path(grid, start, end)
+        return greedy_search(grid, start, end)
     elif algo == "分支限界":
-        return bfs_shortest_path(grid, start, end)
+        return branch_and_bound(grid, start, end)
     else:
         return bfs_shortest_path(grid, start, end)
 
 
 ALGORITHMS = [
-    "BFS(最短路)",
     "动态规划",
     "回溯法",
     "贪心算法",
-    "A*算法",
     "分支限界",
 ]
 
@@ -190,6 +413,7 @@ class MazeGame:
         self.start: Pos = (1, 1)
         self.end: Pos = (ROWS - 2, COLS - 2)
         self.treasures: List[Pos] = []
+        self.initial_treasures = [] # 保存初始金豆
         self.player_pos: Pos = self.start
 
         self.current_algo_index = 0
@@ -205,12 +429,14 @@ class MazeGame:
         self.score = 0
         self.running_time = 0.0
         self.start_time = 0.0
+        self.algorithm_time_ms = 0 # 算法计算路径所用时间
 
         self.generate_new_maze()
 
     # ---------- 迷宫与游戏状态 ----------
     def generate_new_maze(self):
         self.grid, self.start, self.end, self.treasures = generate_maze(ROWS, COLS)
+        self.initial_treasures = list(self.treasures)
         self.player_pos = self.start
         self.animating = False
         self.path = []
@@ -233,35 +459,39 @@ class MazeGame:
         self.beans_collected = 0
         self.score = 0
         self.running_time = 0.0
+        self.cur_path_len = 0
+        self.algorithm_time_ms = 0
 
         # 重置金豆
         for r in range(ROWS):
             for c in range(COLS):
                 if self.grid[r][c] == TREASURE:
-                    # 保持为宝藏
-                    pass
+                    self.grid[r][c] = ROAD
+        for (r, c) in self.initial_treasures:
+            self.grid[r][c] = TREASURE
 
     # ---------- 算法与动画 ----------
     def start_demo(self):
         """根据当前算法计算路径并开始动画"""
+        self.reset_player()
         algo_name = ALGORITHMS[self.current_algo_index]
-
-        # 用一个 copy 的 grid，把 START/EXIT 视为 ROAD
-        simple_grid = [[ROAD if cell != WALL else WALL for cell in row] for row in self.grid]
-
+        # simple_grid = [[ROAD if cell != WALL else WALL for cell in row] for row in self.grid]
+        # t0 = time.time()
+        # path = plan_path(simple_grid, self.start, self.end, algo_name)
+        # 直接用 self.grid，让分支限界能看到 TREASURE
+        grid_for_plan = self.grid
         t0 = time.time()
-        path = plan_path(simple_grid, self.start, self.end, algo_name)
+        path = plan_path(grid_for_plan, self.start, self.end, algo_name)
+
         t1 = time.time()
 
         self.path = path
-        self.cur_path_len = len(path)
+        self.cur_path_len = len(path) # 当前选中算法走出来的路径格数
         self.start_time = time.time()
         self.running_time = 0.0
         self.animating = True
         self.path_index = 0
-
-        # 执行时间只是算法计算路径的时间
-        self.algorithm_time_ms = int((t1 - t0) * 1000)
+        self.algorithm_time_ms = round((t1 - t0) * 1000, 5)
 
     def update_animation(self, dt: float):
         if not self.animating or not self.path:
@@ -285,24 +515,31 @@ class MazeGame:
                 self.animating = False
                 self.compute_score()
 
+    # def compute_score(self):
+    #     """根据积分规则计算得分"""
+    #     beans_score = self.beans_collected * 10
+    #
+    #     all_beans_bonus = 50 if self.beans_collected == self.beans_total else 0
+    #
+    #     optimal_bonus = 0
+    #     over_penalty = 0
+    #     if self.shortest_len > 0 and self.cur_path_len > 0:
+    #         if self.cur_path_len == self.shortest_len:
+    #             optimal_bonus = 30
+    #         elif self.cur_path_len > self.shortest_len:
+    #             over_penalty = self.cur_path_len - self.shortest_len
+    #
+    #     self.score = beans_score + all_beans_bonus + optimal_bonus - over_penalty
+
     def compute_score(self):
-        """根据积分规则计算得分"""
-        beans_score = self.beans_collected * 10
-
-        all_beans_bonus = 50 if self.beans_collected == self.beans_total else 0
-
-        # 时间奖励：越快越高，最长 30 分
-        time_bonus = max(0, 30 - int(self.running_time))
-
-        optimal_bonus = 0
-        over_penalty = 0
-        if self.shortest_len > 0 and self.cur_path_len > 0:
-            if self.cur_path_len == self.shortest_len:
-                optimal_bonus = 30
-            elif self.cur_path_len > self.shortest_len:
-                over_penalty = self.cur_path_len - self.shortest_len
-
-        self.score = beans_score + all_beans_bonus + time_bonus + optimal_bonus - over_penalty
+        """
+        ### 修改点：
+        最终得分 = beans*10 - steps
+        steps = len(path) - 1
+        """
+        steps = max(0, len(self.path) - 1)
+        beans = self.beans_collected
+        self.score = beans * 10 - steps
 
     # ---------- 绘制 ----------
     def draw_maze(self):
